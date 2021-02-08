@@ -1,1 +1,195 @@
-Program
+#include <Metriful_sensor.h>
+#include <ESP8266WiFi.h> 
+#include <Wire.h>
+#include <PubSubClient.h>
+
+
+// Change the credentials below, so your ESP8266 connects to your router
+const char* ssid = "Your SSID";
+const char* password = "Your password";
+
+// Change the variable to your Raspberry Pi IP address, so it connects to your MQTT broker
+const char* mqtt_server = "IP address";
+
+// Initializes the espClient. You should change the espClient name if you have multiple ESPs running in your home automation system
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+typedef struct structure_metriful {  
+    float temperature;
+    float humidity;
+    float pressure;
+    float airQuality;
+    float CO2;
+    float bvoc;
+    float accuracy;
+    boolean isWindowOpen;
+}structure_metriful;
+
+//Datu estructura horren bariable bat sortu
+structure_metriful sensor;
+
+// How often to read data (every 3, 100, or 300 seconds)
+uint8_t cycle_period = CYCLE_PERIOD_3_S;
+
+// Structs for data for MS430 sensor
+AirData_F_t airData = {0};
+AirQualityData_F_t airQualityData = {0};
+
+// Don't change the function below! This functions connects your ESP8266 to your router
+void setup_wifi() {
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("WiFi connected - ESP IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// This functions reconnects your ESP8266 to your MQTT broker
+// Change the function below if you want to subscribe to more topics with your ESP8266 
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    /*
+     YOU MIGHT NEED TO CHANGE THIS LINE, IF YOU'RE HAVING PROBLEMS WITH MQTT MULTIPLE CONNECTIONS
+     To change the ESP device ID, you will have to give a new name to the ESP8266.
+     Here's how it looks:
+       if (client.connect("ESP8266Client")) {
+     You can do it like this:
+       if (client.connect("ESP1_Office")) {
+     Then, for the other ESP:
+       if (client.connect("ESP2_Garage")) {
+      That should solve your MQTT multiple connections problem
+    */
+    if (client.connect("ESP8266Client")) {
+      Serial.println("connected");  
+  
+  // Subscribe or resubscribe to a topic
+      // You can subscribe to more topics (to control more devices in this example)
+//      client.subscribe("MS430/Botoia");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  // Init Serial Monitor
+  Serial.begin(115200);
+
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
+  
+  //Setup WiFi and MQTT server
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+
+  // Initialize the host pins of windows, set up the serial port and reset:
+  SensorHardwareSetup(I2C_ADDRESS); 
+  
+  // Apply chosen settings to the MS430 sensor
+  TransmitI2C(I2C_ADDRESS, CYCLE_TIME_PERIOD_REG, &cycle_period, 1);
+
+  // Wait for the serial port to be ready, for displaying the output
+  while (!Serial) {
+    yield();
+  }
+
+  Serial.println("Entering cycle mode and waiting for data.");
+  ready_assertion_event = false;
+  TransmitI2C(I2C_ADDRESS, CYCLE_MODE_CMD, 0, 0);
+}
+ 
+void loop() {
+  //This reconects the ESP2866 if is desconnected
+  if (!client.connected()) {
+    reconnect();
+  }else {
+    Serial.println("ESP8266 CONNECTED.");
+    }
+  if(!client.loop())
+    client.connect("ESP8266Client");
+  
+  // Wait for the next new data release of MS430 sensor, indicated by a falling edge on READY
+  while (!ready_assertion_event) {
+    yield();
+  }
+  ready_assertion_event = false;
+
+  // Read data from the MS430 sensor into the data structs 
+  
+  // Air data
+  // Choose output temperature unit (C or F) in Metriful_sensor.h
+  /* Air quality data
+  The initial self-calibration of the air quality data may take several
+  minutes to complete. During this time the accuracy parameter is zero 
+  and the data values are not valid.
+  */ 
+  airQualityData = getAirQualityDataF(I2C_ADDRESS);
+  airData = getAirDataF(I2C_ADDRESS);
+  
+  // Print all data of the MS430 sensor to the serial port
+  printAirDataF(&airData);
+  printAirQualityDataF(&airQualityData);
+
+  //Update MS430 sensor variables
+  sensor.temperature = airData.T_C;
+  sensor.humidity = airData.H_pc;
+  sensor.pressure = airData.P_Pa;
+  sensor.airQuality = airQualityData.AQI;
+  sensor.CO2 = airQualityData.CO2e;
+  sensor.bvoc = airQualityData.bVOC;
+  sensor.accuracy = airQualityData.AQI_accuracy;
+
+  Serial.println();
+
+//Change data to const char type
+  //char* dtostrf(float number, int size, int decimals, char* buffer);
+/*                    |         |             |               \_ Buffer where we store the string
+                      |         |             \_ Accuracy (decimal points)
+                      |         \_Number size in characters
+                      \_ Number to convert
+*/
+   static char temperatureChar[7];
+   dtostrf(sensor.temperature, 4, 1, temperatureChar); //e.g. 24,5ºC (4 digits - 1 decimal)
+   static char humidityChar[7];
+   dtostrf(sensor.humidity, 4, 1, humidityChar); //e.g. 47,3% (4 digits - 1 decimal)
+   static char pressureChar[7];
+   dtostrf(sensor.pressure, 6, 0, pressureChar); //e.g. 100.193 Pa (6 digits - 0 decimal)
+   static char airQualityChar[7];
+   dtostrf(sensor.airQuality, 4, 0, airQualityChar); //e.g. 450 (3 digits - 0 decimal)
+   static char CO2Char[7];
+   dtostrf(sensor.CO2, 6, 0, CO2Char); //e.g. 1603ppm (4 digits - 0 decimal)
+   static char bvocChar[7];
+   dtostrf(sensor.bvoc, 4, 2, bvocChar); //e.g. 0,88ppm (6 digits - 1 decimal)
+   static char accuracyChar[7];
+   dtostrf(sensor.accuracy, 1, 0, accuracyChar); //e.g. 3 (1 digit - 0 decimal)
+
+   
+
+  // Publishes Temperature values in NodeRed
+    client.publish("Temperature", temperatureChar);
+    client.publish("Humidity", humidityChar);
+    client.publish("Pressure", pressureChar);
+    client.publish("AirQuality", airQualityChar);
+    client.publish("CO2", CO2Char);
+    client.publish("bvoc", bvocChar);
+    client.publish("Accuracy", accuracyChar);
+    client.publish("Accuracy message", interpret_AQI_accuracy(airQualityData.AQI_accuracy));
+    client.publish("Air Quality Index", interpret_AQI_value(airQualityData.AQI));
+
+  }
