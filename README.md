@@ -145,7 +145,7 @@ Magnetic Reed | --- | 2 | 0,62€ | 1,24€
 Raspberry | 5,1V | 1 | 36,44€ | 36,44€
 Karkaxa | --- | 5 | 5,00€ | 25,00€
 Imanak | --- | 4 | 0,32€ | 1,28€
- | | | | Totala: | 264,19€
+ | | | | Totala: | 244,13€
 
 # ONDORIOAK
 * Hasiera batean ESPNow sistema erabiltzen hasi ginen, baina ez genuen lortu ondo jutea(Arduino karpetan egongo da norbaitek probatu nahi badu)
