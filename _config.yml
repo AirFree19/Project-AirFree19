@@ -1,0 +1,3 @@
+plugins:
+- jeckyll-remote-theme
+remote_theme: chormatical/jeckyll-materialdocs
